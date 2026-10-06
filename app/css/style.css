@@ -114,3 +114,5 @@ dialog{border-radius:7px}
   th:nth-child(8),td:nth-child(8){width:10%}
   th:nth-child(9),td:nth-child(9){width:9%}
 }
+
+.taxreadonly:disabled{opacity:1;background:#f4f6f2;color:#253b3b;border-color:#dce2de;cursor:not-allowed}

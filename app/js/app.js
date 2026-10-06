@@ -143,14 +143,17 @@ function focusInvoiceItems(focusIndex = null) {
 }
 function renderLines(focusIndex = null, focusItems = false) {
   $('emptyItems').hidden = !!state.lines.length;
-  $('lineItems').innerHTML = state.lines.map((l,i) => l.notFound ? `<tr data-line="${i}" class="notfoundline"><td>${i+1}</td><td colspan="8"><strong>Item not found</strong><small>Scanned value: ${esc(l.scanText || l.sku || '')}. Check the barcode/item code in ERP.</small></td><td><button class="remove" type="button" data-remove="${i}" aria-label="Remove item not found warning">×</button></td></tr>` : `<tr data-line="${i}" class="${l.loading ? 'loadingline' : ''}"><td>${i+1}</td><td class="itemname"><strong>${esc(l.name)}</strong><small>${esc(l.sku || 'No SKU')} · HSN ${esc(l.hsn_or_sac || '—')}</small>${l.loading ? '<small class="loadingnote">Loading ERP item details…</small>' : ''}${l.packingError ? `<small class="packingerror">${esc(l.packingError)}</small>${l.itemDebug ? `<button class="debugcopy" type="button" data-debug="${i}">Copy item response</button>` : ''}` : ''}</td><td>${esc(l.stock ?? '—')}<small>${esc(l.mu || l.unit || 'units')}</small></td><td>${l.loading ? '…' : esc(l.pieces || '—')}</td><td><input type="number" min="0.001" step="any" value="${l.quantity}" data-row="${i}" data-field="quantity" aria-label="Quantity for ${esc(l.name)}" required></td><td data-piece="${i}">${l.loading ? '…' : l.pieces ? l.pieces*l.quantity : '—'}</td><td><input type="number" min="0" step="0.01" value="${l.rate}" data-row="${i}" data-field="rate" aria-label="Rate for ${esc(l.name)}" required></td><td><select data-row="${i}" data-field="tax" aria-label="Tax for ${esc(l.name)}"><option value="">${l.loading ? 'Loading…' : l.tax_exemption_id ? 'ERP exempt' : 'Select tax'}</option>${state.taxes.map(t=>`<option value="${esc(t.id)}" ${String(l.tax?.id)===String(t.id)?'selected':''}>${esc(t.name)} (${t.percentage}%)</option>`).join('')}</select></td><td class="right" data-amount="${i}">${l.loading ? '…' : esc(money(pieceQuantity(l)*l.rate))}</td><td><button class="remove" type="button" data-remove="${i}" aria-label="Remove ${esc(l.name)}">×</button></td></tr>`).join('');
+  $('lineItems').innerHTML = state.lines.map((l,i) => {
+    const taxLabel = l.loading ? 'Loading…' : l.tax ? `${l.tax.name} (${l.tax.percentage}%)` : l.tax_exemption_id ? 'ERP exempt' : (taxMode() === 'inter' ? 'IGST not configured' : 'GST not configured');
+    return l.notFound ? `<tr data-line="${i}" class="notfoundline"><td>${i+1}</td><td colspan="8"><strong>Item not found</strong><small>Scanned value: ${esc(l.scanText || l.sku || '')}. Check the barcode/item code in ERP.</small></td><td><button class="remove" type="button" data-remove="${i}" aria-label="Remove item not found warning">×</button></td></tr>` : `<tr data-line="${i}" class="${l.loading ? 'loadingline' : ''}"><td>${i+1}</td><td class="itemname"><strong>${esc(l.name)}</strong><small>${esc(l.sku || 'No SKU')} · HSN ${esc(l.hsn_or_sac || '—')}</small>${l.loading ? '<small class="loadingnote">Loading ERP item details…</small>' : ''}${l.packingError ? `<small class="packingerror">${esc(l.packingError)}</small>${l.itemDebug ? `<button class="debugcopy" type="button" data-debug="${i}">Copy item response</button>` : ''}` : ''}</td><td>${esc(l.stock ?? '—')}<small>${esc(l.mu || l.unit || 'units')}</small></td><td>${l.loading ? '…' : esc(l.pieces || '—')}</td><td><input type="number" min="0.001" step="any" value="${l.quantity}" data-row="${i}" data-field="quantity" aria-label="Quantity for ${esc(l.name)}" required></td><td data-piece="${i}">${l.loading ? '…' : l.pieces ? l.pieces*l.quantity : '—'}</td><td><input type="number" min="0" step="0.01" value="${l.rate}" data-row="${i}" data-field="rate" aria-label="Rate for ${esc(l.name)}" required></td><td><select class="taxreadonly" data-row="${i}" data-field="tax" aria-label="Tax for ${esc(l.name)}" disabled><option value="${esc(l.tax?.id || '')}">${esc(taxLabel)}</option></select></td><td class="right" data-amount="${i}">${l.loading ? '…' : esc(money(pieceQuantity(l)*l.rate))}</td><td><button class="remove" type="button" data-remove="${i}" aria-label="Remove ${esc(l.name)}">×</button></td></tr>`;
+  }).join('');
   totals();
   if (!state.lines.length) loadPendingSO(null);
   if (focusIndex != null || focusItems) focusInvoiceItems(focusIndex);
 }
 $('lineItems').addEventListener('input', e => {
   const {row,field} = e.target.dataset; if (row == null || !field) return;
-  const l=state.lines[Number(row)]; if (!l || l.notFound) return; l[field] = field === 'tax' ? state.taxes.find(t=>String(t.id) === e.target.value) : Number(e.target.value);
+  const l=state.lines[Number(row)]; if (!l || l.notFound || field === 'tax') return; l[field] = Number(e.target.value);
   document.querySelector(`[data-amount="${row}"]`).textContent = money(pieceQuantity(l)*l.rate);
   document.querySelector(`[data-piece="${row}"]`).textContent = l.pieces ? Math.round(l.pieces*l.quantity*1000)/1000 : '—'; totals();
 });
@@ -190,7 +193,7 @@ async function chooseCustomer(record) {
     $('cf_mobile').value=c.mobile || c.contact_persons?.find(p=>p.is_primary_contact)?.mobile || c.phone || '';
     $('cf_shippingPhone').value=c.shipping_address?.phone || '';
     for(const [k,m] of Object.entries(config.customFields)) { const source=(c.custom_fields||[]).find(f=>m.customerApiName && f.api_name===m.customerApiName); if(source && $(`cf_${k}`))$(`cf_${k}`).value=source.value ?? ''; }
-    addresses();totals();
+    addresses();applyPlaceOfSupplyTaxes();renderLines();
     const orders=await api.all('/salesorders','salesorders',{customer_id:c.contact_id}); if(version!==state.customerVersion)return;
     selectOptions('salesOrder',orders.filter(o=>['open','confirmed','partially_invoiced'].includes(o.status)),'salesorder_id','salesorder_number','No sales order');$('salesOrder').disabled=false;
     requestAnimationFrame(() => $('itemSearch').focus());
@@ -227,24 +230,47 @@ function searchable(inputId, resultsId, search, key, describe, choose, options =
   return run;
 }
 searchable('customerSearch','customerResults',(q,p)=>api.searchCustomers(q,p),'contacts',c=>[c.contact_name,[c.company_name,c.mobile || c.email].filter(Boolean).join(' · ')],chooseCustomer);
-$('customerSearch').addEventListener('input',()=>{state.customerVersion++;state.customer=null;$('salesOrder').disabled=true;$('salesOrder').replaceChildren(new Option('Select a customer first',''));$('gstNumber').value='';$('shippingGst').value='';$('placeOfSupply').value='';['mobile','whatsapp','shippingPhone'].forEach(k=>$(`cf_${k}`).value='');$('customerHint').textContent='Choose a matching ERP customer';addresses();});
-function normalizeTax(t){return {id:String(t.tax_id || t.tax_group_id || t.id || ''),name:t.tax_name || t.tax_group_name || t.name || t.tax_name_formatted || t.text,percentage:Number(t.tax_percentage ?? t.tax_group_percentage ?? t.percentage ?? 0)};}
-function itemTax(item) {
-  const preferences = item.item_tax_preferences || [];
-  const preferred = preferences.find(t => String(t.tax_specification || '').toLowerCase() === 'intra')
-    || preferences.find(t => String(t.tax_specific_type || '').toLowerCase() === 'tax')
-    || preferences[0]
-    || item;
-  const id = preferred.tax_id || preferred.tax_group_id || item.tax_id;
+$('customerSearch').addEventListener('input',()=>{state.customerVersion++;state.customer=null;$('salesOrder').disabled=true;$('salesOrder').replaceChildren(new Option('Select a customer first',''));$('gstNumber').value='';$('shippingGst').value='';$('placeOfSupply').value='';['mobile','whatsapp','shippingPhone'].forEach(k=>$(`cf_${k}`).value='');$('customerHint').textContent='Choose a matching ERP customer';addresses();applyPlaceOfSupplyTaxes();renderLines();});
+$('placeOfSupply').addEventListener('input',()=>{applyPlaceOfSupplyTaxes();renderLines();});
+function normalizeTax(t){return {id:String(t.tax_id || t.tax_group_id || t.id || ''),name:t.tax_name || t.tax_group_name || t.name || t.tax_name_formatted || t.text,percentage:Number(t.tax_percentage ?? t.tax_group_percentage ?? t.percentage ?? 0),specification:String(t.tax_specification || t.tax_specific_type || t.tax_type || '').toLowerCase()};}
+function taxMode() { return $('placeOfSupply').value.trim().toUpperCase() === 'KL' ? 'intra' : 'inter'; }
+function taxLooksInter(t) { return /inter|igst/i.test(`${t.specification || ''} ${t.name || ''}`); }
+function taxLooksIntra(t) { return /intra/i.test(`${t.specification || ''} ${t.name || ''}`) || (/gst/i.test(t.name || '') && !taxLooksInter(t)); }
+function preferenceForMode(source, mode) {
+  const preferences = source.item_tax_preferences || source.taxPreferences || [];
+  return preferences.find(t => mode === 'inter' ? taxLooksInter(normalizeTax(t)) : taxLooksIntra(normalizeTax(t))) || null;
+}
+function matchingConfiguredTax(candidate, mode) {
+  const id = candidate.tax_id || candidate.tax_group_id || candidate.id;
+  const exact = id ? state.taxes.find(t => String(t.id) === String(id)) : null;
+  if (exact && (mode === 'inter' ? taxLooksInter(exact) : taxLooksIntra(exact))) return exact;
+  const percentage = Number(candidate.tax_percentage ?? candidate.tax_group_percentage ?? candidate.percentage ?? 0);
+  return state.taxes.find(t => Number(t.percentage) === percentage && (mode === 'inter' ? taxLooksInter(t) : taxLooksIntra(t))) || null;
+}
+function itemTax(source, mode = taxMode()) {
+  const preferences = source.item_tax_preferences || source.taxPreferences || [];
+  const preferred = preferenceForMode(source, mode);
+  const fallback = preferred || preferences[0] || source;
+  const configured = matchingConfiguredTax(fallback, mode);
+  if (configured) return configured;
+  if (!preferred && mode === 'inter') return null;
+  const id = fallback.tax_id || fallback.tax_group_id || source.tax_id;
   if (!id) return null;
-  const existing = state.taxes.find(t => String(t.id) === String(id));
-  if (existing) return existing;
-  const tax = normalizeTax({...preferred, tax_id: id});
+  const tax = normalizeTax({...fallback, tax_id: id});
   if (tax.id && tax.name && Number.isFinite(tax.percentage)) {
+    const existing = state.taxes.find(t => String(t.id) === String(tax.id));
+    if (existing) return existing;
     state.taxes.push(tax);
     return tax;
   }
   return null;
+}
+function applyPlaceOfSupplyTaxes() {
+  const mode = taxMode();
+  for (const line of state.lines) {
+    if (line.notFound || line.loading || line.tax_exemption_id) continue;
+    line.tax = itemTax(line, mode);
+  }
 }
 function debugSnapshot(selectedRecord, itemResponse, masterId, masterResponse, mergedItem, masterError) {
   const clean = value => JSON.parse(JSON.stringify(value, (key, data) => key === '__rajadhaniDebug' ? undefined : data));
@@ -292,7 +318,7 @@ async function fullItem(record) {
 async function lineFromItem(item, extra={}) {
   const tax = itemTax(item);
   const packing = itemPacking(item, config.itemFields);
-  return {item_id:String(item.item_id),name:item.name,sku:item.sku,hsn_or_sac:item.hsn_or_sac,stock:item.available_stock ?? item.stock_on_hand,unit:item.unit,rate:Number(item.rate||0),quantity:1,tax,tax_exemption_id:item.tax_exemption_id,...packing,itemDebug:item.__rajadhaniDebug,tracked:!!(item.is_serial_number_tracking_enabled||item.is_batch_tracking_enabled||item.is_storage_location_enabled),...extra};
+  return {item_id:String(item.item_id),name:item.name,sku:item.sku,hsn_or_sac:item.hsn_or_sac,stock:item.available_stock ?? item.stock_on_hand,unit:item.unit,rate:Number(item.rate||0),quantity:1,tax,taxPreferences:item.item_tax_preferences || [],tax_exemption_id:item.tax_exemption_id,...packing,itemDebug:item.__rajadhaniDebug,tracked:!!(item.is_serial_number_tracking_enabled||item.is_batch_tracking_enabled||item.is_storage_location_enabled),...extra};
 }
 function quickLineFromRecord(record) {
   return {item_id:String(record.item_id),name:record.name || record.item_name || record.sku || 'Scanned item',sku:record.sku || record.item_code,hsn_or_sac:record.hsn_or_sac,stock:record.available_stock ?? record.stock_on_hand,unit:record.unit,rate:Number(record.rate||0),quantity:1,tax:null,tax_exemption_id:record.tax_exemption_id,mu:record.unit || '',pieces:null,loading:true};
@@ -347,7 +373,7 @@ async function loadLookups() {
   const jobs=[
     {name:'customers',run:()=>api.searchCustomers('',1)},
     {name:'items',run:()=>api.searchItems('',1)},
-    {name:'taxes',run:async()=>{state.taxes=(await api.all('/settings/taxes','taxes')).filter(t=>t.is_active!==false).map(normalizeTax);renderLines();}},
+    {name:'taxes',run:async()=>{state.taxes=(await api.all('/settings/taxes','taxes')).filter(t=>t.is_active!==false).map(normalizeTax);applyPlaceOfSupplyTaxes();renderLines();}},
     {name:'salespersons',run:async()=>{const source=config.lookupSources.salesperson;if(source)selectOptions('salesperson',await api.all(source.path,source.key,source.query),source.idKey,source.labelKey,'Select salesperson');else selectOptions('salesperson',await api.salespersons(),'salesperson_id','salesperson_name','Select salesperson');}},
     {name:'locations',run:async()=>{selectOptions('location',await api.all('/locations','locations'),'location_id','location_name','Organization default');}},
     ...Object.entries(config.lookupSources).filter(([key])=>key!=='salesperson'&&key!=='billType').map(([key,source])=>({name:config.customFields[key]?.label||key,run:async()=>{if(!$(`cf_${key}`))return;selectOptions(`cf_${key}`,await api.all(source.path,source.key,source.query),source.idKey,source.labelKey,`Select ${config.customFields[key].label.toLowerCase()}`);}}))
